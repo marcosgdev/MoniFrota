@@ -124,6 +124,43 @@ class MetricasPeriodo(BaseModel):
     combustivel_mais_usado: str
 
 
+class ResumoVeiculoTipo(BaseModel):
+    """Resumo consolidado de um veículo dentro de um tipo (marca/modelo)."""
+    placa: str
+    secretaria: str
+    total_abastecimentos: int
+    total_litros: float
+    total_gasto: float
+    km_total_rodado: int
+    alertas: int
+
+
+class HistoricoTipoVeiculo(BaseModel):
+    """Histórico agregado de todos os veículos de um mesmo tipo (marca/modelo)."""
+    marca: str
+    modelo: str
+    total_veiculos: int
+    total_abastecimentos: int
+    total_litros: float
+    total_gasto: float
+    km_total_rodado: int
+    media_litros_por_abastecimento: float
+    media_valor_por_abastecimento: float
+    alertas: int
+    veiculos: list[ResumoVeiculoTipo]
+
+
+class ModeloDisponivel(BaseModel):
+    marca: str
+    modelo: str
+    total_veiculos: int
+
+
+class RespostaModelos(BaseModel):
+    total: int
+    modelos: list[ModeloDisponivel]
+
+
 class RespostaComparativo(BaseModel):
     periodo_a: MetricasPeriodo
     periodo_b: MetricasPeriodo
