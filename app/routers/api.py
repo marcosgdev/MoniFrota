@@ -233,13 +233,23 @@ async def get_comparativo(
     fimA:     str          = Query(..., description="MM-dd-yyyy"),
     inicioB:  str          = Query(..., description="MM-dd-yyyy"),
     fimB:     str          = Query(..., description="MM-dd-yyyy"),
-    unidades: str | None   = Query(default=None),
+    unidades: str | None   = Query(default=None, description="Filtro por unidade/secretaria, ex: 2,97"),
+    placas:   str | None   = Query(default=None, description="Filtro por placa(s), ex: ABC-1234,DEF-5678"),
 ):
-    """Compara métricas entre dois períodos."""
+    """
+    Compara métricas entre dois períodos.
+    Aceita filtros opcionais por unidade (centro de custo) e placa(s).
+    """
     abs_a, abs_b = await asyncio.gather(
         _buscar(inicioA, fimA, unidades),
         _buscar(inicioB, fimB, unidades),
     )
+
+    # Filtro por placa(s) aplicado após a busca
+    if placas:
+        filtro = {p.strip().upper() for p in placas.split(",")}
+        abs_a = [a for a in abs_a if a.placa.upper() in filtro]
+        abs_b = [a for a in abs_b if a.placa.upper() in filtro]
 
     async def pontos_de(abastecimentos):
         cnpjs      = list({a.CNPJ for a in abastecimentos if a.CNPJ})
@@ -260,6 +270,8 @@ async def get_comparativo(
         variacao_gasto_pct   = _variacao(ma.total_gasto,  mb.total_gasto),
         variacao_litros_pct  = _variacao(ma.total_litros, mb.total_litros),
         variacao_alertas_pct = _variacao(ma.alertas,      mb.alertas),
+        filtro_placas        = placas,
+        filtro_unidades      = unidades,
     )
 
 

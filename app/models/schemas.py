@@ -130,3 +130,5 @@ class RespostaComparativo(BaseModel):
     variacao_gasto_pct: float
     variacao_litros_pct: float
     variacao_alertas_pct: float
+    filtro_placas:   Optional[str] = None   # placas aplicadas, se houver
+    filtro_unidades: Optional[str] = None   # unidades aplicadas, se houver
