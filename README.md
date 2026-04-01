@@ -232,7 +232,3 @@ certbot --nginx -d seu-dominio.com.br
 | `SYNC_INTERVAL_MIN` | `3` | Intervalo do scheduler intraday (minutos) |
 
 ---
-
-## Licença
-
-Uso restrito — Governo do Estado do Pará.
