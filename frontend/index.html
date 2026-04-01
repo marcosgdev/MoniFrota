@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FrotaGov — Monitoramento de Abastecimentos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;500;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+:root {
+  --bg:      #0f1117;
+  --bg2:     #171b26;
+  --bg3:     #1e2333;
+  --border:  rgba(255,255,255,0.07);
+  --border2: rgba(255,255,255,0.13);
+  --text:    #e8eaf2;
+  --muted:   #7c8099;
+  --accent:  #2ecc8a;
+  --accent2: #1aab70;
+  --warn:    #f5a623;
+  --danger:  #e25050;
+  --info:    #4a9eff;
+  --fd: 'Syne', sans-serif;
+  --fb: 'DM Sans', sans-serif;
+  --fm: 'DM Mono', monospace;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--fb); font-size: 13px; }
+
+.app { display: grid; grid-template-columns: 248px 1fr; grid-template-rows: 52px 1fr; height: 100vh; }
+
+/* ── Topbar ── */
+.topbar { grid-column:1/-1; background:var(--bg2); border-bottom:1px solid var(--border); display:flex; align-items:center; padding:0 18px; gap:14px; }
+.logo { font-family:var(--fd); font-size:16px; font-weight:700; letter-spacing:-.02em; display:flex; align-items:center; gap:7px; }
+.logo-dot { width:8px; height:8px; border-radius:50%; background:var(--accent); animation:pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+.sep { flex:1; }
+.fg { display:flex; align-items:center; gap:6px; background:var(--bg3); border:1px solid var(--border2); border-radius:6px; padding:5px 10px; font-size:12px; color:var(--muted); }
+.fg label { white-space:nowrap; }
+.fg input, .fg select { background:none; border:none; color:var(--text); font-family:var(--fb); font-size:12px; outline:none; cursor:pointer; }
+.fg input[type=date] { width:110px; color-scheme:dark; }
+.fg select option { background:var(--bg3); }
+.btn { background:var(--accent); border:none; border-radius:6px; color:#0a1a12; font-family:var(--fb); font-size:12px; font-weight:500; padding:6px 14px; cursor:pointer; display:flex; align-items:center; gap:6px; transition:background .15s; }
+.btn:hover { background:var(--accent2); }
+.btn:disabled { opacity:.5; cursor:not-allowed; }
+.live { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--muted); }
+.live-dot { width:6px; height:6px; border-radius:50%; background:var(--accent); }
+.live-dot.loading { background:var(--warn); animation:pulse 1s infinite; }
+.live-dot.error { background:var(--danger); animation:none; }
+
+/* ── Sidebar ── */
+.sidebar { background:var(--bg2); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; }
+.sh { padding:14px 16px 6px; font-size:10px; font-weight:500; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); }
+.kpi-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; padding:0 14px 12px; }
+.kpi { background:var(--bg3); border:1px solid var(--border); border-radius:8px; padding:10px; }
+.kpi-l { font-size:10px; color:var(--muted); margin-bottom:3px; }
+.kpi-v { font-family:var(--fd); font-size:19px; font-weight:700; line-height:1; }
+.kpi-v.ok { color:var(--accent); } .kpi-v.danger { color:var(--danger); } .kpi-v.warn { color:var(--warn); } .kpi-v.info { color:var(--info); }
+.kpi-s { font-size:10px; color:var(--muted); margin-top:3px; }
+.sdiv { height:1px; background:var(--border); margin:0 14px 10px; }
+.leg { padding:0 16px 10px; display:flex; flex-direction:column; gap:5px; }
+.leg-i { display:flex; align-items:center; gap:8px; font-size:11px; color:var(--muted); }
+.leg-d { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+.alist { flex:1; overflow-y:auto; padding:0 12px 12px; display:flex; flex-direction:column; gap:5px; }
+.alist::-webkit-scrollbar { width:3px; }
+.alist::-webkit-scrollbar-thumb { background:var(--border2); border-radius:2px; }
+.ai { background:var(--bg3); border:1px solid var(--border); border-radius:8px; padding:9px 11px; cursor:pointer; transition:border-color .15s; }
+.ai:hover { border-color:var(--border2); }
+.ai.crit { border-left:2px solid var(--danger); }
+.ai.wrn  { border-left:2px solid var(--warn); }
+.ai-hd { display:flex; justify-content:space-between; align-items:center; margin-bottom:3px; }
+.ai-placa { font-family:var(--fm); font-size:12px; font-weight:500; }
+.bx { font-size:9px; font-weight:500; padding:2px 6px; border-radius:20px; }
+.bx-d { background:rgba(226,80,80,.15);  color:var(--danger); border:1px solid rgba(226,80,80,.3); }
+.bx-w { background:rgba(245,166,35,.15); color:var(--warn);   border:1px solid rgba(245,166,35,.3); }
+.bx-o { background:rgba(46,204,138,.15); color:var(--accent); border:1px solid rgba(46,204,138,.3); }
+.ai-d { font-size:11px; color:var(--muted); line-height:1.4; }
+.ai-m { font-size:10px; color:rgba(124,128,153,.6); margin-top:3px; }
+.empty { font-size:11px; color:var(--muted); padding:6px 4px; }
+
+/* ── Mapa ── */
+.main { position:relative; overflow:hidden; background:var(--bg); }
+#map { width:100%; height:100%; }
+.leaflet-container { background:#1a1f2e !important; font-family:var(--fb) !important; }
+.leaflet-tile { filter:brightness(.55) saturate(.5) hue-rotate(200deg); }
+.leaflet-control-zoom a { background:var(--bg2) !important; color:var(--text) !important; border-color:var(--border2) !important; }
+.leaflet-control-attribution { background:rgba(15,17,23,.8) !important; color:var(--muted) !important; }
+
+.map-hd { position:absolute; top:12px; left:12px; background:rgba(23,27,38,.92); border:1px solid var(--border2); border-radius:8px; padding:8px 14px; backdrop-filter:blur(8px); z-index:500; }
+.map-title { font-family:var(--fd); font-size:13px; font-weight:700; }
+.map-sub { font-size:11px; color:var(--muted); }
+
+.map-bot { position:absolute; bottom:0; left:0; right:0; background:linear-gradient(to top,rgba(15,17,23,.97),transparent); padding:28px 18px 12px; display:flex; align-items:flex-end; gap:8px; pointer-events:none; }
+.map-bot > * { pointer-events:auto; }
+.ms { background:rgba(23,27,38,.92); border:1px solid var(--border2); border-radius:8px; padding:7px 13px; backdrop-filter:blur(8px); }
+.ms-l { font-size:10px; color:var(--muted); margin-bottom:2px; }
+.ms-v { font-family:var(--fm); font-size:13px; font-weight:500; }
+
+/* ── Painel de detalhes ── */
+.dp { position:absolute; top:12px; right:12px; width:282px; background:var(--bg2); border:1px solid var(--border2); border-radius:12px; overflow:hidden; transform:translateX(320px); transition:transform .3s cubic-bezier(.16,1,.3,1); z-index:1000; }
+.dp.open { transform:translateX(0); }
+.dp-hd { padding:13px 15px 11px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:flex-start; }
+.dp-posto { font-family:var(--fd); font-size:14px; font-weight:700; margin-bottom:2px; }
+.dp-cnpj { font-family:var(--fm); font-size:10px; color:var(--muted); }
+.dp-x { background:none; border:none; color:var(--muted); cursor:pointer; font-size:18px; line-height:1; padding:0; }
+.dp-x:hover { color:var(--text); }
+.dp-body { padding:11px 15px; display:flex; flex-direction:column; gap:5px; }
+.dr { display:flex; justify-content:space-between; align-items:center; }
+.dk { font-size:11px; color:var(--muted); }
+.dv { font-size:11px; font-weight:500; text-align:right; }
+.dv.mono { font-family:var(--fm); }
+.ddiv { height:1px; background:var(--border); margin:2px 0; }
+.dp-ft { padding:9px 15px 13px; }
+.cnpj-st { display:flex; align-items:center; gap:8px; padding:7px 11px; border-radius:8px; font-size:11px; font-weight:500; }
+.cok  { background:rgba(46,204,138,.1);  color:var(--accent); border:1px solid rgba(46,204,138,.2); }
+.cbad { background:rgba(226,80,80,.1);   color:var(--danger); border:1px solid rgba(226,80,80,.2); }
+.dp-alerta { margin-top:6px; font-size:10px; color:var(--warn); background:rgba(245,166,35,.08); border:1px solid rgba(245,166,35,.2); border-radius:6px; padding:6px 10px; line-height:1.5; }
+
+/* ── Loading overlay ── */
+.loading-overlay { position:absolute; inset:0; background:rgba(15,17,23,.7); display:flex; align-items:center; justify-content:center; z-index:2000; backdrop-filter:blur(4px); transition:opacity .3s; }
+.loading-overlay.hidden { opacity:0; pointer-events:none; }
+.loading-box { background:var(--bg2); border:1px solid var(--border2); border-radius:12px; padding:24px 32px; text-align:center; }
+.loading-spin { width:32px; height:32px; border:3px solid var(--border2); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; margin:0 auto 12px; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.loading-txt { font-size:13px; color:var(--muted); }
+
+@keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+.kpi { animation:fadeUp .35s both; }
+
+/* ── Botões secundários ── */
+.btn-sec { background:var(--bg3); border:1px solid var(--border2); border-radius:6px; color:var(--text); font-family:var(--fb); font-size:12px; padding:6px 12px; cursor:pointer; transition:border-color .15s; white-space:nowrap; }
+.btn-sec:hover { border-color:var(--accent); color:var(--accent); }
+
+/* ── Modal base ── */
+.modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:3000; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(4px); }
+.modal-backdrop.hidden { display:none; }
+.modal { background:var(--bg2); border:1px solid var(--border2); border-radius:14px; width:min(820px,95vw); max-height:85vh; display:flex; flex-direction:column; overflow:hidden; animation:fadeUp .2s both; }
+.modal-hd { padding:16px 20px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; flex-shrink:0; }
+.modal-title { font-family:var(--fd); font-size:15px; font-weight:700; }
+.modal-x { background:none; border:none; color:var(--muted); cursor:pointer; font-size:20px; line-height:1; }
+.modal-x:hover { color:var(--text); }
+.modal-body { padding:16px 20px; overflow-y:auto; flex:1; }
+.modal-body::-webkit-scrollbar { width:3px; }
+.modal-body::-webkit-scrollbar-thumb { background:var(--border2); border-radius:2px; }
+
+/* ── Histórico ── */
+.hv-search { display:flex; gap:8px; margin-bottom:16px; }
+.hv-search select, .hv-search input { background:var(--bg3); border:1px solid var(--border2); border-radius:6px; color:var(--text); font-family:var(--fb); font-size:12px; padding:6px 10px; flex:1; outline:none; }
+.hv-search select option { background:var(--bg3); }
+.hv-kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:16px; }
+.hv-kpi { background:var(--bg3); border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
+.hv-kpi-l { font-size:10px; color:var(--muted); margin-bottom:3px; }
+.hv-kpi-v { font-family:var(--fd); font-size:17px; font-weight:700; }
+.timeline { display:flex; flex-direction:column; gap:6px; }
+.tl-item { background:var(--bg3); border:1px solid var(--border); border-radius:8px; padding:10px 13px; display:grid; grid-template-columns:90px 1fr auto; gap:8px; align-items:center; cursor:pointer; transition:border-color .15s; }
+.tl-item:hover { border-color:var(--border2); }
+.tl-item.warn  { border-left:2px solid var(--warn); }
+.tl-item.danger { border-left:2px solid var(--danger); }
+.tl-date { font-family:var(--fm); font-size:11px; color:var(--muted); }
+.tl-mid { display:flex; flex-direction:column; gap:2px; }
+.tl-posto { font-size:12px; font-weight:500; }
+.tl-det { font-size:11px; color:var(--muted); }
+.tl-mot { font-size:10px; color:var(--warn); margin-top:2px; }
+.tl-mot.danger { color:var(--danger); }
+.tl-val { text-align:right; }
+.tl-v { font-family:var(--fm); font-size:13px; font-weight:500; }
+.tl-l { font-size:10px; color:var(--muted); margin-top:2px; }
+.hv-empty { font-size:12px; color:var(--muted); padding:20px 0; text-align:center; }
+
+/* ── Comparativo ── */
+.cmp-filters { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px; }
+.cmp-period { background:var(--bg3); border:1px solid var(--border); border-radius:8px; padding:12px; }
+.cmp-period-label { font-size:10px; font-weight:500; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin-bottom:8px; }
+.cmp-period-label.a { color:var(--info); }
+.cmp-period-label.b { color:var(--accent); }
+.cmp-row { display:flex; gap:6px; align-items:center; }
+.cmp-row input { background:var(--bg2); border:1px solid var(--border2); border-radius:5px; color:var(--text); font-family:var(--fb); font-size:11px; padding:5px 8px; flex:1; outline:none; color-scheme:dark; }
+.cmp-table { width:100%; border-collapse:collapse; font-size:12px; }
+.cmp-table th { font-size:10px; font-weight:500; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); padding:6px 10px; border-bottom:1px solid var(--border); text-align:left; }
+.cmp-table th.num { text-align:right; }
+.cmp-table td { padding:8px 10px; border-bottom:1px solid rgba(255,255,255,.03); }
+.cmp-table td.num { text-align:right; font-family:var(--fm); }
+.cmp-table td.metric { color:var(--muted); font-size:11px; }
+.cmp-table tr:last-child td { border-bottom:none; }
+.delta { font-size:10px; font-weight:500; padding:2px 5px; border-radius:4px; margin-left:4px; }
+.delta.up   { background:rgba(226,80,80,.12);  color:var(--danger); }
+.delta.down { background:rgba(46,204,138,.12); color:var(--accent); }
+.delta.neu  { background:rgba(124,128,153,.1); color:var(--muted); }
+
+/* ── Painel de lista do posto ── */
+.lp { position:absolute; top:12px; right:12px; width:282px; background:var(--bg2); border:1px solid var(--border2); border-radius:12px; overflow:hidden; transform:translateX(320px); transition:transform .3s cubic-bezier(.16,1,.3,1); z-index:999; }
+.lp.open { transform:translateX(0); }
+.lp-hd { padding:13px 15px 11px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:flex-start; }
+.lp-nome { font-family:var(--fd); font-size:14px; font-weight:700; margin-bottom:2px; }
+.lp-cnt  { font-size:11px; color:var(--muted); }
+.lp-x { background:none; border:none; color:var(--muted); cursor:pointer; font-size:18px; line-height:1; padding:0; }
+.lp-x:hover { color:var(--text); }
+.lp-list { max-height:340px; overflow-y:auto; padding:6px 8px; display:flex; flex-direction:column; gap:4px; }
+.lp-list::-webkit-scrollbar { width:3px; }
+.lp-list::-webkit-scrollbar-thumb { background:var(--border2); border-radius:2px; }
+.lp-item { display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border-radius:8px; background:var(--bg3); border:1px solid var(--border); cursor:pointer; transition:border-color .15s; gap:8px; }
+.lp-item:hover { border-color:var(--border2); }
+.lp-item.warn   { border-left:2px solid var(--warn); }
+.lp-item.danger { border-left:2px solid var(--danger); }
+.lp-item-left { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.lp-placa { font-family:var(--fm); font-size:12px; font-weight:500; }
+.lp-meta  { font-size:10px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.lp-item-right { text-align:right; flex-shrink:0; }
+.lp-valor { font-family:var(--fm); font-size:12px; font-weight:500; }
+.lp-litros { font-size:10px; color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Topbar -->
+  <header class="topbar">
+    <div class="logo"><div class="logo-dot"></div>FrotaGov</div>
+    <span style="font-size:11px;color:var(--muted)">Abastecimentos da frota pública</span>
+    <div class="sep"></div>
+    <div class="fg"><label>De</label><input type="date" id="dt-inicio"></div>
+    <div class="fg"><label>Até</label><input type="date" id="dt-fim"></div>
+    <div class="fg">
+      <label>Unidade</label>
+      <select id="sel-unidade">
+        <option value="">Todas</option>
+        <option value="saude">Saúde</option>
+        <option value="obras">Obras</option>
+        <option value="educacao">Educação</option>
+      </select>
+    </div>
+    <div class="fg">
+      <label>Combustível</label>
+      <select id="sel-comb">
+        <option value="">Todos</option>
+        <option value="Diesel">Diesel</option>
+        <option value="Gasolina">Gasolina</option>
+        <option value="Etanol">Etanol</option>
+      </select>
+    </div>
+    <button class="btn" id="btn-buscar" onclick="buscar()">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M10.5 6A4.5 4.5 0 1 1 6 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M6 1.5L8 3.5M6 1.5L8 0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Buscar
+    </button>
+    <button class="btn-sec" onclick="abrirHistorico()">Histórico por veículo</button>
+    <button class="btn-sec" onclick="abrirComparativo()">Comparativo</button>
+    <div class="live"><div class="live-dot" id="live-dot"></div><span id="live-txt">Pronto</span></div>
+  </header>
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sh">Resumo</div>
+    <div class="kpi-grid">
+      <div class="kpi"><div class="kpi-l">Total gasto</div><div class="kpi-v info" id="kpi-valor">—</div><div class="kpi-s" id="kpi-trans">—</div></div>
+      <div class="kpi"><div class="kpi-l">Litros</div><div class="kpi-v ok" id="kpi-litros">—</div><div class="kpi-s" id="kpi-media">—</div></div>
+      <div class="kpi"><div class="kpi-l">Alertas</div><div class="kpi-v danger" id="kpi-alertas">—</div><div class="kpi-s">abastecimentos</div></div>
+      <div class="kpi"><div class="kpi-l">Postos irreg.</div><div class="kpi-v warn" id="kpi-cnpj">—</div><div class="kpi-s">CNPJ irregular</div></div>
+    </div>
+    <div class="sdiv"></div>
+    <div class="sh">Legenda</div>
+    <div class="leg">
+      <div class="leg-i"><div class="leg-d" style="background:#2ecc8a"></div>Regular — CNPJ ativo</div>
+      <div class="leg-i"><div class="leg-d" style="background:#f5a623"></div>Atenção — anomalia leve</div>
+      <div class="leg-i"><div class="leg-d" style="background:#e25050"></div>Alerta — CNPJ irregular</div>
+      <div class="leg-i"><div class="leg-d" style="background:#4a9eff"></div>Posto interno da frota</div>
+    </div>
+    <div class="sdiv"></div>
+    <div class="sh">Alertas recentes</div>
+    <div class="alist" id="alist"></div>
+  </aside>
+
+  <!-- Mapa -->
+  <main class="main">
+    <div id="map"></div>
+
+    <div class="map-hd">
+      <div class="map-title" id="map-title">FrotaGov</div>
+      <div class="map-sub" id="map-sub">Aguardando busca…</div>
+    </div>
+
+    <div class="map-bot">
+      <div class="ms"><div class="ms-l">Último abast.</div><div class="ms-v" id="s-ultimo">—</div></div>
+      <div class="ms"><div class="ms-l">Maior gasto</div><div class="ms-v" id="s-maior">—</div></div>
+      <div class="ms"><div class="ms-l">Posto top</div><div class="ms-v" id="s-posto">—</div></div>
+      <div class="ms"><div class="ms-l">Cobertura GPS</div><div class="ms-v" id="s-gps">—</div></div>
+    </div>
+
+    <!-- Painel de detalhes -->
+    <div class="dp" id="dp">
+      <div class="dp-hd">
+        <div style="display:flex;align-items:center;gap:8px">
+          <button class="dp-x" id="dp-voltar" onclick="voltarParaLista()" style="display:none;font-size:14px;margin-right:2px" title="Voltar">←</button>
+          <div>
+            <div class="dp-posto" id="d-posto">—</div>
+            <div class="dp-cnpj" id="d-cnpj">—</div>
+          </div>
+        </div>
+        <button class="dp-x" onclick="fecharDetalhe()">×</button>
+      </div>
+      <div class="dp-body">
+        <div class="dr"><span class="dk">Placa</span><span class="dv mono" id="d-placa">—</span></div>
+        <div class="dr"><span class="dk">Condutor</span><span class="dv" id="d-condutor">—</span></div>
+        <div class="dr"><span class="dk">Secretaria</span><span class="dv" id="d-secret">—</span></div>
+        <div class="ddiv"></div>
+        <div class="dr"><span class="dk">Data / hora</span><span class="dv mono" id="d-data">—</span></div>
+        <div class="dr"><span class="dk">Combustível</span><span class="dv" id="d-comb">—</span></div>
+        <div class="dr"><span class="dk">Litros</span><span class="dv mono" id="d-litros">—</span></div>
+        <div class="dr"><span class="dk">Valor total</span><span class="dv mono" id="d-valor">—</span></div>
+        <div class="dr"><span class="dk">Preço / litro</span><span class="dv mono" id="d-vlitro">—</span></div>
+        <div class="ddiv"></div>
+        <div class="dr"><span class="dk">Km atual</span><span class="dv mono" id="d-km">—</span></div>
+        <div class="dr"><span class="dk">Km rodados</span><span class="dv mono" id="d-kmr">—</span></div>
+      </div>
+      <div class="dp-ft">
+        <div class="cnpj-st" id="d-cnpjst">—</div>
+        <div class="dp-alerta" id="d-alerta" style="display:none"></div>
+      </div>
+    </div>
+
+    <!-- Modal: Histórico por veículo -->
+    <div class="modal-backdrop hidden" id="modal-historico">
+      <div class="modal">
+        <div class="modal-hd">
+          <span class="modal-title">Histórico por veículo</span>
+          <button class="modal-x" onclick="fecharHistorico()">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="hv-search">
+            <select id="hv-placa"><option value="">Selecione uma placa…</option></select>
+            <button class="btn" onclick="buscarHistorico()">Ver histórico</button>
+          </div>
+          <div id="hv-conteudo"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Comparativo -->
+    <div class="modal-backdrop hidden" id="modal-comparativo">
+      <div class="modal">
+        <div class="modal-hd">
+          <span class="modal-title">Comparativo entre períodos</span>
+          <button class="modal-x" onclick="fecharComparativo()">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="cmp-filters">
+            <div class="cmp-period">
+              <div class="cmp-period-label a">Período A</div>
+              <div class="cmp-row">
+                <input type="date" id="cmp-a-ini" />
+                <span style="color:var(--muted);font-size:11px">até</span>
+                <input type="date" id="cmp-a-fim" />
+              </div>
+            </div>
+            <div class="cmp-period">
+              <div class="cmp-period-label b">Período B</div>
+              <div class="cmp-row">
+                <input type="date" id="cmp-b-ini" />
+                <span style="color:var(--muted);font-size:11px">até</span>
+                <input type="date" id="cmp-b-fim" />
+              </div>
+            </div>
+          </div>
+          <button class="btn" style="margin-bottom:16px" onclick="buscarComparativo()">Comparar</button>
+          <div id="cmp-conteudo"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Painel de lista do posto -->
+    <div class="lp" id="lp">
+      <div class="lp-hd">
+        <div>
+          <div class="lp-nome" id="lp-nome">—</div>
+          <div class="lp-cnt"  id="lp-cnt">—</div>
+        </div>
+        <button class="lp-x" onclick="fecharLista()">×</button>
+      </div>
+      <div class="lp-list" id="lp-list"></div>
+    </div>
+
+    <!-- Loading -->
+    <div class="loading-overlay hidden" id="loading">
+      <div class="loading-box">
+        <div class="loading-spin"></div>
+        <div class="loading-txt" id="loading-txt">Carregando abastecimentos…</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+// ── Configuração ──────────────────────────────────────────────
+const API_BASE = '';   // mesmo origin — FastAPI serve o frontend em /
+
+// ── Estado ───────────────────────────────────────────────────
+let map, markers = [], todosOsPontos = [];
+
+// ── Inicialização ─────────────────────────────────────────────
+function initDatas() {
+  const hoje  = new Date();
+  const inicio = new Date(hoje); inicio.setDate(hoje.getDate() - 30);
+  const fmt = d => d.toISOString().slice(0,10);
+  document.getElementById('dt-inicio').value = fmt(inicio);
+  document.getElementById('dt-fim').value    = fmt(hoje);
+}
+
+function initMap() {
+  map = L.map('map', { zoomControl: true }).setView([-3.7300, -38.5300], 12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap', maxZoom: 19,
+  }).addTo(map);
+}
+
+// ── Datas para formato Sisatec MM-dd-yyyy ────────────────────
+function toSisatec(isoDate) {
+  const [y, m, d] = isoDate.split('-');
+  return `${m}-${d}-${y}`;
+}
+
+// ── Busca à API ───────────────────────────────────────────────
+async function buscar() {
+  const inicio = document.getElementById('dt-inicio').value;
+  const fim    = document.getElementById('dt-fim').value;
+  if (!inicio || !fim) return;
+
+  setLoading(true, 'Buscando abastecimentos…');
+  document.getElementById('btn-buscar').disabled = true;
+  fecharDetalhe();
+
+  try {
+    const params = new URLSearchParams({
+      dataInicio: toSisatec(inicio),
+      dataFim:    toSisatec(fim),
+    });
+    const unid = document.getElementById('sel-unidade').value;
+    if (unid) params.set('unidades', unid);
+
+    setLoading(true, 'Validando CNPJs dos postos…');
+    const resp = await fetch(`${API_BASE}/api/mapa?${params}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+
+    todosOsPontos = data.pontos || [];
+    renderizar(todosOsPontos, data);
+    setStatus('ok', `${data.total} pontos carregados`);
+  } catch(e) {
+    setStatus('error', `Erro: ${e.message}`);
+    console.error(e);
+  } finally {
+    setLoading(false);
+    document.getElementById('btn-buscar').disabled = false;
+  }
+}
+
+// ── Filtro local por combustível ──────────────────────────────
+document.getElementById('sel-comb').addEventListener('change', () => {
+  const comb = document.getElementById('sel-comb').value;
+  const filtrados = comb
+    ? todosOsPontos.filter(p => p.combustivel === comb)
+    : todosOsPontos;
+  renderizar(filtrados, null);
+});
+
+// ── Renderização ──────────────────────────────────────────────
+const COR = { ok:'#2ecc8a', warn:'#f5a623', danger:'#e25050' };
+
+// Agrupa pontos pela chave "lat,lon" (mesmo posto = mesma coordenada GPS)
+function agruparPorCoordenada(pontos) {
+  const grupos = {};
+  for (const p of pontos) {
+    const chave = `${p.lat},${p.lon}`;
+    if (!grupos[chave]) grupos[chave] = [];
+    grupos[chave].push(p);
+  }
+  return grupos;
+}
+
+// Prioridade de status para o marcador do grupo: danger > warn > ok
+function statusDoGrupo(lista) {
+  if (lista.some(p => p.status_mapa === 'danger')) return 'danger';
+  if (lista.some(p => p.status_mapa === 'warn'))   return 'warn';
+  return 'ok';
+}
+
+function renderizar(pontos, meta) {
+  markers.forEach(m => map.removeLayer(m));
+  markers = [];
+  fecharLista();
+
+  const grupos = agruparPorCoordenada(pontos);
+
+  for (const [, grupo] of Object.entries(grupos)) {
+    const rep    = grupo[0];
+    const status = statusDoGrupo(grupo);
+    const interno = grupo.every(p => p.tipo_posto === 'interno');
+    const cor    = interno ? '#4a9eff' : (COR[status] || COR.ok);
+    const multi  = grupo.length > 1;
+
+    const m = L.circleMarker([rep.lat, rep.lon], {
+      radius:      status === 'danger' ? 10 : 8,
+      color:       cor, fillColor: cor, fillOpacity: .88,
+      weight:      status === 'danger' ? 2 : 1.5,
+    }).addTo(map);
+
+    // Badge de contagem para grupos com mais de 1 abastecimento
+    if (multi) {
+      const icon = L.divIcon({
+        className: '',
+        html: `<div style="
+          position:absolute;top:-6px;right:-6px;
+          background:var(--bg2);border:1px solid ${cor};
+          color:${cor};font-size:9px;font-weight:700;
+          border-radius:10px;padding:1px 4px;
+          font-family:var(--fm);line-height:1.4;pointer-events:none;">
+          ${grupo.length}
+        </div>`,
+        iconSize: [0, 0],
+      });
+      L.marker([rep.lat, rep.lon], { icon, interactive: false }).addTo(map);
+    }
+
+    m.on('click', () => {
+      fecharDetalhe();
+      if (grupo.length === 1) {
+        fecharLista();
+        abrirDetalhe(grupo[0]);
+      } else {
+        abrirLista(grupo);
+      }
+    });
+
+    markers.push(m);
+  }
+
+  if (pontos.length) {
+    map.fitBounds(L.latLngBounds(pontos.map(p => [p.lat, p.lon])), { padding:[60,60] });
+  }
+
+  atualizarSidebar(pontos, meta);
+  document.getElementById('map-sub').textContent = `${pontos.length} abastecimentos · ${Object.keys(grupos).length} postos`;
+}
+
+// ── Painel de lista do posto ──────────────────────────
+function abrirLista(grupo) {
+  _grupoAtivo = grupo;
+  fecharDetalhe();
+  const br = (n) => Number(n).toLocaleString('pt-BR', {minimumFractionDigits:2});
+  set('lp-nome', grupo[0].posto);
+  set('lp-cnt',  `${grupo.length} abastecimentos neste posto`);
+
+  const sorted = [...grupo].sort((a, b) => (b.data + b.hora).localeCompare(a.data + a.hora));
+  document.getElementById('lp-list').innerHTML = sorted.map(p => `
+    <div class="lp-item ${p.status_mapa !== 'ok' ? p.status_mapa : ''}" onclick="selecionarDaLista('${p.id}')">
+      <div class="lp-item-left">
+        <span class="lp-placa">${p.placa}</span>
+        <span class="lp-meta">${p.data} ${p.hora.slice(0,5)} · ${p.condutor.split(' ')[0]}</span>
+        ${p.alerta_motivo ? `<span class="lp-meta" style="color:${p.status_mapa==='danger'?'var(--danger)':'var(--warn)'}">${p.alerta_motivo.split('|')[0].trim()}</span>` : ''}
+      </div>
+      <div class="lp-item-right">
+        <div class="lp-valor">R$ ${br(p.valor)}</div>
+        <div class="lp-litros">${p.litros} L</div>
+      </div>
+    </div>`).join('');
+
+  document.getElementById('lp').classList.add('open');
+  map.setView([grupo[0].lat, grupo[0].lon], 15, { animate: true });
+}
+
+function fecharLista() {
+  document.getElementById('lp').classList.remove('open');
+}
+
+function selecionarDaLista(id) {
+  const p = todosOsPontos.find(x => x.id === id);
+  if (p) { fecharLista(); abrirDetalhe(p, true); }
+}
+
+// ── Sidebar / KPIs ────────────────────────────────────────────
+function atualizarSidebar(pontos, meta) {
+  const total   = pontos.reduce((s,p) => s + p.valor, 0);
+  const litros  = pontos.reduce((s,p) => s + p.litros, 0);
+  const alertas = pontos.filter(p => p.status_mapa !== 'ok').length;
+  const irreg   = new Set(pontos.filter(p => p.cnpj_ok === false).map(p => p.cnpj)).size;
+
+  set('kpi-valor',   'R$ ' + total.toLocaleString('pt-BR', {minimumFractionDigits:2}));
+  set('kpi-trans',   pontos.length + ' transações');
+  set('kpi-litros',  litros.toLocaleString('pt-BR') + ' L');
+  set('kpi-media',   'média ' + Math.round(litros / (pontos.length||1)) + ' L');
+  set('kpi-alertas', alertas);
+  set('kpi-cnpj',    irreg);
+
+  // Estatísticas rodapé
+  const sorted = [...pontos].sort((a,b) => (b.data+b.hora).localeCompare(a.data+a.hora));
+  if (sorted[0]) set('s-ultimo', sorted[0].placa + ' ' + sorted[0].hora.slice(0,5));
+  const maior = [...pontos].sort((a,b) => b.valor-a.valor)[0];
+  if (maior) set('s-maior', 'R$ ' + maior.valor.toLocaleString('pt-BR',{minimumFractionDigits:2}));
+  const pc = {};
+  pontos.forEach(p => pc[p.posto] = (pc[p.posto]||0)+1);
+  const tp = Object.entries(pc).sort((a,b)=>b[1]-a[1])[0];
+  if (tp) set('s-posto', tp[0].replace(/^(Auto )?Posto /i,''));
+  set('s-gps', pontos.length ? Math.round(pontos.filter(p=>p.lat&&p.lon).length/pontos.length*100)+'%' : '—');
+
+  // Lista de alertas
+  const lista = document.getElementById('alist');
+  const alts  = pontos.filter(p=>p.status_mapa!=='ok').sort((a,b)=>(b.status_mapa==='danger')-(a.status_mapa==='danger'));
+  if (!alts.length) { lista.innerHTML = '<div class="empty">Nenhum alerta no período</div>'; return; }
+  lista.innerHTML = alts.map(p => `
+    <div class="ai ${p.status_mapa==='danger'?'crit':'wrn'}" onclick="focarPonto('${p.id}')">
+      <div class="ai-hd">
+        <span class="ai-placa">${p.placa}</span>
+        <span class="bx ${p.status_mapa==='danger'?'bx-d':'bx-w'}">${p.status_mapa==='danger'?'CNPJ IRREG.':'ATENÇÃO'}</span>
+      </div>
+      <div class="ai-d">${p.posto} — ${p.litros}L / R$ ${p.valor.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
+      <div class="ai-m">${p.data} ${p.hora.slice(0,5)} · ${p.condutor}</div>
+    </div>`).join('');
+}
+
+// ── Detalhe do marcador ───────────────────────────────────────
+let _grupoAtivo = null; // guarda o grupo caso o usuário queira voltar
+
+function abrirDetalhe(p, doGrupo = false) {
+  set('d-posto',    p.posto);
+  set('d-cnpj',     p.cnpj);
+  set('d-placa',    p.placa);
+  set('d-condutor', p.condutor);
+  set('d-secret',   p.secretaria || '—');
+  set('d-data',     p.data + ' ' + p.hora.slice(0,5));
+  set('d-comb',     p.combustivel);
+  set('d-litros',   p.litros + ' L');
+  set('d-valor',    'R$ ' + p.valor.toLocaleString('pt-BR',{minimumFractionDigits:2}));
+  set('d-vlitro',   'R$ ' + p.valor_litro.toFixed(2) + '/L');
+  set('d-km',       p.km_atual.toLocaleString('pt-BR') + ' km');
+  set('d-kmr',      p.km_rodados.toLocaleString('pt-BR') + ' km');
+
+  const st = document.getElementById('d-cnpjst');
+  if (p.cnpj_ok === true) {
+    st.className = 'cnpj-st cok';
+    st.innerHTML = '<svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M2.5 7L5.5 10L11.5 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> CNPJ ativo — Receita Federal';
+  } else if (p.cnpj_ok === false) {
+    st.className = 'cnpj-st cbad';
+    st.innerHTML = '<svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M7 4V7.5M7 10h.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.5"/></svg> CNPJ ' + (p.cnpj_situacao||'irregular') + ' — verificar';
+  } else {
+    st.className = 'cnpj-st';
+    st.textContent = 'Situação CNPJ não verificada';
+  }
+
+  const alEl = document.getElementById('d-alerta');
+  if (p.alerta_motivo) {
+    alEl.textContent = p.alerta_motivo;
+    alEl.style.display = 'block';
+  } else {
+    alEl.style.display = 'none';
+  }
+
+  // Mostra botão voltar se veio de uma lista de grupo
+  document.getElementById('dp-voltar').style.display = doGrupo ? 'inline' : 'none';
+
+  document.getElementById('dp').classList.add('open');
+  map.setView([p.lat, p.lon], 15, { animate: true });
+}
+
+function fecharDetalhe() {
+  document.getElementById('dp').classList.remove('open');
+  document.getElementById('dp-voltar').style.display = 'none';
+}
+
+function voltarParaLista() {
+  fecharDetalhe();
+  if (_grupoAtivo) abrirLista(_grupoAtivo);
+}
+
+function focarPonto(id) {
+  const p = todosOsPontos.find(x => x.id === id);
+  if (p) abrirDetalhe(p);
+}
+
+// ── Helpers ───────────────────────────────────────────────────
+function set(id, val) { const el = document.getElementById(id); if(el) el.textContent = val; }
+
+function setLoading(show, txt='') {
+  const el = document.getElementById('loading');
+  el.classList.toggle('hidden', !show);
+  if (txt) set('loading-txt', txt);
+}
+
+function setStatus(type, txt) {
+  const dot = document.getElementById('live-dot');
+  dot.className = 'live-dot' + (type === 'loading' ? ' loading' : type === 'error' ? ' error' : '');
+  set('live-txt', txt);
+}
+
+// ── Histórico por veículo ─────────────────────────────
+async function abrirHistorico() {
+  document.getElementById('modal-historico').classList.remove('hidden');
+  const sel = document.getElementById('hv-placa');
+  if (sel.options.length <= 1) {
+    const inicio = document.getElementById('dt-inicio').value;
+    const fim    = document.getElementById('dt-fim').value;
+    const params = inicio && fim ? `?dataInicio=${toSisatec(inicio)}&dataFim=${toSisatec(fim)}` : '';
+    try {
+      const r = await fetch(`${API_BASE}/api/placas${params}`);
+      const d = await r.json();
+      sel.innerHTML = '<option value="">Selecione uma placa…</option>' +
+        d.placas.map(p => `<option value="${p}">${p}</option>`).join('');
+    } catch(e) { console.error(e); }
+  }
+}
+
+function fecharHistorico() {
+  document.getElementById('modal-historico').classList.add('hidden');
+}
+
+async function buscarHistorico() {
+  const placa = document.getElementById('hv-placa').value;
+  if (!placa) return;
+  const inicio = document.getElementById('dt-inicio').value;
+  const fim    = document.getElementById('dt-fim').value;
+  const div = document.getElementById('hv-conteudo');
+  div.innerHTML = '<div class="hv-empty">Carregando…</div>';
+  try {
+    const params = inicio && fim ? `?dataInicio=${toSisatec(inicio)}&dataFim=${toSisatec(fim)}` : '';
+    const r = await fetch(`${API_BASE}/api/veiculo/${encodeURIComponent(placa)}${params}`);
+    if (!r.ok) { div.innerHTML = '<div class="hv-empty">Nenhum dado encontrado.</div>'; return; }
+    const h = await r.json();
+    const br = (n, dec=2) => Number(n).toLocaleString('pt-BR', {minimumFractionDigits:dec});
+    div.innerHTML = `
+      <div style="font-family:var(--fd);font-size:13px;font-weight:700;margin-bottom:10px">
+        ${h.placa} <span style="font-weight:400;color:var(--muted);font-size:12px">— ${h.marca} ${h.modelo} · ${h.secretaria}</span>
+      </div>
+      <div class="hv-kpis">
+        <div class="hv-kpi"><div class="hv-kpi-l">Total gasto</div><div class="hv-kpi-v" style="color:var(--info)">R$ ${br(h.total_gasto)}</div></div>
+        <div class="hv-kpi"><div class="hv-kpi-l">Litros</div><div class="hv-kpi-v" style="color:var(--accent)">${br(h.total_litros,0)} L</div></div>
+        <div class="hv-kpi"><div class="hv-kpi-l">Km rodado</div><div class="hv-kpi-v">${br(h.km_total_rodado,0)} km</div></div>
+        <div class="hv-kpi"><div class="hv-kpi-l">Alertas</div><div class="hv-kpi-v" style="color:${h.alertas>0?'var(--danger)':'var(--accent)'};">${h.alertas}</div></div>
+      </div>
+      <div class="timeline">
+        ${h.eventos.map(e => `
+          <div class="tl-item ${e.status_mapa !== 'ok' ? e.status_mapa : ''}">
+            <div class="tl-date">${e.data}<br>${e.hora.slice(0,5)}</div>
+            <div class="tl-mid">
+              <div class="tl-posto">${e.posto}</div>
+              <div class="tl-det">${e.combustivel} · ${e.km_rodados} km rodados</div>
+              ${e.alerta_motivo ? `<div class="tl-mot ${e.status_mapa}">${e.alerta_motivo}</div>` : ''}
+            </div>
+            <div class="tl-val">
+              <div class="tl-v">R$ ${br(e.valor)}</div>
+              <div class="tl-l">${br(e.litros,0)} L</div>
+            </div>
+          </div>`).join('')}
+      </div>`;
+  } catch(e) {
+    div.innerHTML = `<div class="hv-empty">Erro: ${e.message}</div>`;
+  }
+}
+
+// ── Comparativo entre períodos ────────────────────────
+function abrirComparativo() {
+  document.getElementById('modal-comparativo').classList.remove('hidden');
+  const hoje = new Date();
+  const fmt  = d => d.toISOString().slice(0,10);
+  const m30  = new Date(hoje); m30.setDate(hoje.getDate() - 30);
+  const m60  = new Date(hoje); m60.setDate(hoje.getDate() - 60);
+  if (!document.getElementById('cmp-a-ini').value) {
+    document.getElementById('cmp-b-ini').value = fmt(m60);
+    document.getElementById('cmp-b-fim').value = fmt(m30);
+    document.getElementById('cmp-a-ini').value = fmt(m30);
+    document.getElementById('cmp-a-fim').value = fmt(hoje);
+  }
+}
+
+function fecharComparativo() {
+  document.getElementById('modal-comparativo').classList.add('hidden');
+}
+
+async function buscarComparativo() {
+  const aIni = document.getElementById('cmp-a-ini').value;
+  const aFim = document.getElementById('cmp-a-fim').value;
+  const bIni = document.getElementById('cmp-b-ini').value;
+  const bFim = document.getElementById('cmp-b-fim').value;
+  if (!aIni || !aFim || !bIni || !bFim) return;
+
+  const div = document.getElementById('cmp-conteudo');
+  div.innerHTML = '<div class="hv-empty">Carregando…</div>';
+
+  try {
+    const params = new URLSearchParams({
+      inicioA: toSisatec(aIni), fimA: toSisatec(aFim),
+      inicioB: toSisatec(bIni), fimB: toSisatec(bFim),
+    });
+    const r = await fetch(`${API_BASE}/api/comparativo?${params}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    const a = d.periodo_a, b = d.periodo_b;
+    const br = (n, dec=2) => Number(n).toLocaleString('pt-BR', {minimumFractionDigits:dec});
+
+    const delta = (pct, inverso=false) => {
+      if (pct === 0) return `<span class="delta neu">—</span>`;
+      const subiu = pct > 0;
+      const cls = (subiu !== inverso) ? 'up' : 'down';
+      return `<span class="delta ${cls}">${subiu?'+':''}${pct}%</span>`;
+    };
+
+    div.innerHTML = `
+      <table class="cmp-table">
+        <thead>
+          <tr>
+            <th>Métrica</th>
+            <th class="num" style="color:var(--info)">Período A<br><small style="font-weight:400;text-transform:none;letter-spacing:0">${aIni} → ${aFim}</small></th>
+            <th class="num" style="color:var(--accent)">Período B<br><small style="font-weight:400;text-transform:none;letter-spacing:0">${bIni} → ${bFim}</small></th>
+            <th class="num">Variação (A→B)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="metric">Total gasto (R$)</td><td class="num">R$ ${br(a.total_gasto)}</td><td class="num">R$ ${br(b.total_gasto)}</td><td class="num">${delta(d.variacao_gasto_pct, true)}</td></tr>
+          <tr><td class="metric">Litros abastecidos</td><td class="num">${br(a.total_litros,0)} L</td><td class="num">${br(b.total_litros,0)} L</td><td class="num">${delta(d.variacao_litros_pct, true)}</td></tr>
+          <tr><td class="metric">Nº de abastecimentos</td><td class="num">${a.total_abastecimentos}</td><td class="num">${b.total_abastecimentos}</td><td class="num">—</td></tr>
+          <tr><td class="metric">Preço médio/litro</td><td class="num">R$ ${br(a.media_valor_litro,3)}</td><td class="num">R$ ${br(b.media_valor_litro,3)}</td><td class="num">—</td></tr>
+          <tr><td class="metric">Veículos distintos</td><td class="num">${a.veiculos_distintos}</td><td class="num">${b.veiculos_distintos}</td><td class="num">—</td></tr>
+          <tr><td class="metric">Alertas</td><td class="num">${a.alertas}</td><td class="num">${b.alertas}</td><td class="num">${delta(d.variacao_alertas_pct, true)}</td></tr>
+          <tr><td class="metric">CNPJs irregulares</td><td class="num">${a.cnpj_irregulares}</td><td class="num">${b.cnpj_irregulares}</td><td class="num">—</td></tr>
+          <tr><td class="metric">Combustível top</td><td class="num">${a.combustivel_mais_usado}</td><td class="num">${b.combustivel_mais_usado}</td><td class="num">—</td></tr>
+        </tbody>
+      </table>`;
+  } catch(e) {
+    div.innerHTML = `<div class="hv-empty">Erro: ${e.message}</div>`;
+  }
+}
+
+// ── Boot ──────────────────────────────────────────────────────
+initDatas();
+initMap();
+buscar();   // busca automática ao carregar
+</script>
+</body>
+</html>
