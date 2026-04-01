@@ -5,7 +5,9 @@ Endpoints da API:
   GET /api/veiculo/{placa} — histórico de um veículo
   GET /api/tipo-veiculo    — histórico agregado por marca/modelo
   GET /api/modelos         — lista marcas/modelos disponíveis no período
-  GET /api/comparativo     — compara métricas entre dois períodos
+  GET /api/unidades        — lista unidades gestoras disponíveis no período
+  GET /api/unidade-gestora — histórico agregado por unidade gestora
+  GET /api/comparativo     — compara métricas (aceita filtros: placa, marca, modelo, unidade)
   GET /api/placas          — lista placas ativas no período
   GET /api/cnpj/{cnpj}     — consulta individual de CNPJ
   GET /api/sync            — força sincronização manual (somente modo real)
@@ -24,6 +26,8 @@ from app.models.schemas import (
     HistoricoVeiculo, EventoVeiculo,
     HistoricoTipoVeiculo, ResumoVeiculoTipo,
     RespostaModelos, ModeloDisponivel,
+    HistoricoUnidadeGestora, ResumoVeiculoUnidade,
+    RespostaUnidades, UnidadeDisponivel,
     RespostaComparativo, MetricasPeriodo,
 )
 from app.services.cnpj_service import validar_cnpj
@@ -237,23 +241,38 @@ async def get_comparativo(
     fimA:     str          = Query(..., description="MM-dd-yyyy"),
     inicioB:  str          = Query(..., description="MM-dd-yyyy"),
     fimB:     str          = Query(..., description="MM-dd-yyyy"),
-    unidades: str | None   = Query(default=None, description="Filtro por unidade/secretaria, ex: 2,97"),
     placas:   str | None   = Query(default=None, description="Filtro por placa(s), ex: ABC-1234,DEF-5678"),
+    marca:    str | None   = Query(default=None, description="Filtro por marca, ex: Toyota"),
+    modelo:   str | None   = Query(default=None, description="Filtro por modelo, ex: Corolla"),
+    unidades: str | None   = Query(default=None, description="Filtro por unidade gestora, ex: Secretaria de Saúde"),
 ):
     """
     Compara métricas entre dois períodos.
-    Aceita filtros opcionais por unidade (centro de custo) e placa(s).
+    Filtros opcionais (combinável): placa(s), marca, modelo, unidade gestora.
     """
     abs_a, abs_b = await asyncio.gather(
-        _buscar(inicioA, fimA, unidades),
-        _buscar(inicioB, fimB, unidades),
+        _buscar(inicioA, fimA),
+        _buscar(inicioB, fimB),
     )
 
-    # Filtro por placa(s) aplicado após a busca
-    if placas:
-        filtro = {p.strip().upper() for p in placas.split(",")}
-        abs_a = [a for a in abs_a if a.placa.upper() in filtro]
-        abs_b = [a for a in abs_b if a.placa.upper() in filtro]
+    def _aplicar_filtros(registros):
+        if placas:
+            filtro_p = {p.strip().upper() for p in placas.split(",")}
+            registros = [a for a in registros if a.placa.upper() in filtro_p]
+        if marca:
+            registros = [a for a in registros if (a.marca or "").strip().lower() == marca.lower()]
+        if modelo:
+            registros = [a for a in registros if (a.modelo or "").strip().lower() == modelo.lower()]
+        if unidades:
+            filtro_u = {u.strip().lower() for u in unidades.split(",")}
+            registros = [
+                a for a in registros
+                if (a.centroDeCustoVeiculo or a.centroDeCustoCondutor or "").strip().lower() in filtro_u
+            ]
+        return registros
+
+    abs_a = _aplicar_filtros(abs_a)
+    abs_b = _aplicar_filtros(abs_b)
 
     async def pontos_de(abastecimentos):
         cnpjs      = list({a.CNPJ for a in abastecimentos if a.CNPJ})
@@ -276,6 +295,8 @@ async def get_comparativo(
         variacao_alertas_pct = _variacao(ma.alertas,      mb.alertas),
         filtro_placas        = placas,
         filtro_unidades      = unidades,
+        filtro_marca         = marca,
+        filtro_modelo        = modelo,
     )
 
 
@@ -411,6 +432,123 @@ async def get_historico_tipo_veiculo(
         media_valor_por_abastecimento  = round(total_gasto  / total_ab, 2) if total_ab else 0,
         alertas                      = total_alertas,
         veiculos                     = resumos,
+    )
+
+
+@router.get("/unidades", response_model=RespostaUnidades)
+async def get_unidades(
+    dataInicio: str | None = Query(default=None),
+    dataFim:    str | None = Query(default=None),
+):
+    """Lista todas as unidades gestoras (secretarias) com abastecimentos no período."""
+    inicio, fim = dataInicio or "", dataFim or ""
+    if not inicio or not fim:
+        inicio, fim = _default_datas()
+
+    todos = await _buscar(inicio, fim)
+
+    agrupado: dict[str, set[str]] = {}
+    for a in todos:
+        unidade = (a.centroDeCustoVeiculo or a.centroDeCustoCondutor or "").strip()
+        if unidade:
+            agrupado.setdefault(unidade, set()).add(a.placa)
+
+    unidades = sorted(
+        [UnidadeDisponivel(unidade=u, total_veiculos=len(placas)) for u, placas in agrupado.items()],
+        key=lambda x: x.unidade,
+    )
+    return RespostaUnidades(total=len(unidades), unidades=unidades)
+
+
+@router.get("/unidade-gestora", response_model=HistoricoUnidadeGestora)
+async def get_historico_unidade_gestora(
+    unidade:    str        = Query(..., description="Nome da unidade gestora, ex: Secretaria de Saúde"),
+    dataInicio: str | None = Query(default=None),
+    dataFim:    str | None = Query(default=None),
+):
+    """
+    Histórico agregado de abastecimentos de todos os veículos de uma unidade gestora.
+    Busca por nome (case-insensitive, correspondência parcial).
+    """
+    inicio, fim = dataInicio or "", dataFim or ""
+    if not inicio or not fim:
+        inicio, fim = _default_datas()
+
+    todos = await _buscar(inicio, fim)
+
+    unidade_lower = unidade.strip().lower()
+    filtrados = [
+        a for a in todos
+        if unidade_lower in (a.centroDeCustoVeiculo or a.centroDeCustoCondutor or "").strip().lower()
+    ]
+
+    if not filtrados:
+        raise HTTPException(status_code=404, detail=f"Unidade gestora não encontrada: {unidade}")
+
+    cnpjs_unicos  = list({a.CNPJ for a in filtrados if a.CNPJ})
+    resultados    = await asyncio.gather(*[validar_cnpj(c) for c in cnpjs_unicos], return_exceptions=True)
+    mapa_cnpj     = {c: r for c, r in zip(cnpjs_unicos, resultados) if isinstance(r, SituacaoCNPJ)}
+    media_veiculo = _media_por_veiculo(todos)
+    mediana_preco = _mediana_preco_combustivel(todos)
+
+    por_placa: dict[str, list] = {}
+    for a in filtrados:
+        por_placa.setdefault(a.placa, []).append(a)
+
+    resumos: list[ResumoVeiculoUnidade] = []
+    for placa, abs_placa in sorted(por_placa.items()):
+        litros_total = 0.0
+        valor_total  = 0.0
+        kms          = []
+        alertas_cnt  = 0
+
+        for a in abs_placa:
+            try:
+                litros_total += float(a.quantidadeLitros)
+                valor_total  += float(a.valor)
+                km_a = int(a.kmAtual or 0)
+                km_p = int(a.kmAnterior or 0)
+                if km_a > 0 and km_p > 0:
+                    kms.append(max(0, km_a - km_p))
+            except ValueError:
+                pass
+            _, motivo = classificar(a, mapa_cnpj.get(a.CNPJ), media_veiculo, mediana_preco)
+            if motivo:
+                alertas_cnt += 1
+
+        ref = abs_placa[0]
+        resumos.append(ResumoVeiculoUnidade(
+            placa                = placa,
+            marca                = ref.marca  or "",
+            modelo               = ref.modelo or "",
+            total_abastecimentos = len(abs_placa),
+            total_litros         = round(litros_total, 1),
+            total_gasto          = round(valor_total, 2),
+            km_total_rodado      = sum(kms),
+            alertas              = alertas_cnt,
+        ))
+
+    total_ab      = sum(r.total_abastecimentos for r in resumos)
+    total_litros  = sum(r.total_litros for r in resumos)
+    total_gasto   = sum(r.total_gasto  for r in resumos)
+    total_km      = sum(r.km_total_rodado for r in resumos)
+    total_alertas = sum(r.alertas for r in resumos)
+
+    # Nome canônico da unidade (usa o valor real do primeiro registro)
+    ref0 = filtrados[0]
+    nome_unidade = (ref0.centroDeCustoVeiculo or ref0.centroDeCustoCondutor or unidade).strip()
+
+    return HistoricoUnidadeGestora(
+        unidade                        = nome_unidade,
+        total_veiculos                 = len(resumos),
+        total_abastecimentos           = total_ab,
+        total_litros                   = round(total_litros, 1),
+        total_gasto                    = round(total_gasto, 2),
+        km_total_rodado                = total_km,
+        media_litros_por_abastecimento = round(total_litros / total_ab, 1) if total_ab else 0,
+        media_valor_por_abastecimento  = round(total_gasto  / total_ab, 2) if total_ab else 0,
+        alertas                        = total_alertas,
+        veiculos                       = resumos,
     )
 
 

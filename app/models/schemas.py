@@ -161,11 +161,49 @@ class RespostaModelos(BaseModel):
     modelos: list[ModeloDisponivel]
 
 
+class ResumoVeiculoUnidade(BaseModel):
+    """Resumo consolidado de um veículo dentro de uma unidade gestora."""
+    placa: str
+    marca: str
+    modelo: str
+    total_abastecimentos: int
+    total_litros: float
+    total_gasto: float
+    km_total_rodado: int
+    alertas: int
+
+
+class HistoricoUnidadeGestora(BaseModel):
+    """Histórico agregado de todos os veículos de uma unidade gestora (secretaria)."""
+    unidade: str
+    total_veiculos: int
+    total_abastecimentos: int
+    total_litros: float
+    total_gasto: float
+    km_total_rodado: int
+    media_litros_por_abastecimento: float
+    media_valor_por_abastecimento: float
+    alertas: int
+    veiculos: list[ResumoVeiculoUnidade]
+
+
+class UnidadeDisponivel(BaseModel):
+    unidade: str
+    total_veiculos: int
+
+
+class RespostaUnidades(BaseModel):
+    total: int
+    unidades: list[UnidadeDisponivel]
+
+
 class RespostaComparativo(BaseModel):
     periodo_a: MetricasPeriodo
     periodo_b: MetricasPeriodo
     variacao_gasto_pct: float
     variacao_litros_pct: float
     variacao_alertas_pct: float
-    filtro_placas:   Optional[str] = None   # placas aplicadas, se houver
-    filtro_unidades: Optional[str] = None   # unidades aplicadas, se houver
+    filtro_placas:   Optional[str] = None
+    filtro_unidades: Optional[str] = None
+    filtro_marca:    Optional[str] = None
+    filtro_modelo:   Optional[str] = None
